@@ -7,7 +7,7 @@
 
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #000000;
 }
 
 @theme inline {
@@ -15,7 +15,13 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-dm-sans);
   --font-display: var(--font-league-spartan);
-  --color-accent: #7c4ce4;
+  --color-accent: oklch(55% 0.2 295);
+  --color-muted: oklch(97% 0 0);
+  --color-muted-foreground: oklch(45% 0 0);
+  --color-destructive: oklch(55% 0.2 27);
+  --shadow-hard: 4px 4px 0 #000;
+  --radius-sm: 4px;
+  --radius-md: 6px;
 }
 
 body {

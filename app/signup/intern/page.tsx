@@ -4,7 +4,8 @@ import { ProspectSignupScreen } from "@/screens/prospect-signup/ProspectSignupSc
 
 export const metadata: Metadata = {
   title: "Prospect sign-up — Skifa",
-  description: "Create your Skifa prospect profile and get matched with opportunities.",
+  description:
+    "Create your Skifa prospect profile and get matched with opportunities.",
 };
 
 export default function ProspectSignupPage() {
