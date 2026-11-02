@@ -1,18 +1,22 @@
 import type { Metadata } from "next";
-import { DM_Sans, League_Spartan } from "next/font/google";
+import localFont from "next/font/local";
 
 import { siteConfig } from "@/config/site";
 
 import "./globals.css";
 
-const dmSans = DM_Sans({
+const dmSans = localFont({
+  src: "../public/fonts/dm-sans.ttf",
+  weight: "100 1000",
+  display: "swap",
   variable: "--font-dm-sans",
-  subsets: ["latin"],
 });
 
-const leagueSpartan = League_Spartan({
+const leagueSpartan = localFont({
+  src: "../public/fonts/league-spartan.ttf",
+  weight: "100 900",
+  display: "swap",
   variable: "--font-league-spartan",
-  subsets: ["latin"],
 });
 
 export const metadata: Metadata = {

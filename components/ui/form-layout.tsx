@@ -28,7 +28,7 @@ export function FormHeading({
       <h1 className="font-display text-3xl font-bold leading-9 text-black">
         {title}
       </h1>
-      <p className="mt-1 text-sm text-zinc-600">{subtitle}</p>
+      <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
     </div>
   );
 }
