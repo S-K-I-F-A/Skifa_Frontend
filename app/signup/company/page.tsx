@@ -4,7 +4,7 @@ import { CompanySignupScreen } from "@/screens/company-signup/CompanySignupScree
 
 export const metadata: Metadata = {
   title: "Company sign-up",
-  description: "Hire ID-verified African interns with Skifa.",
+  description: "Find ID-verified Nigerian interns with Skifa.",
 };
 
 export default function CompanySignupPage() {

@@ -44,3 +44,7 @@ next-env.d.ts
 
 # Local browser profiles must never be published
 .browser*/
+
+/.design-reference/
+/test-results/
+/playwright-report/

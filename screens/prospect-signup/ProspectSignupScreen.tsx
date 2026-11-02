@@ -1,9 +1,6 @@
 "use client";
-
 import Link from "next/link";
-import { useState } from "react";
-import type { FormEvent, ReactNode } from "react";
-
+import { useEffect, useState, type ReactNode } from "react";
 import { SiteShell } from "@/components/layout/site-shell";
 import {
   Dropdown,
@@ -14,213 +11,969 @@ import {
   secondaryButtonClass,
 } from "@/components/ui/form-controls";
 import { FormCard } from "@/components/ui/form-layout";
+import {
+  NIGERIAN_STATES,
+  SKILL_CATEGORIES,
+  SKILL_LEVELS,
+  EXPERIENCE_OPTIONS,
+  type Skill,
+} from "@/config/mvp";
+import { savePreview } from "@/lib/preview-store";
+import {
+  errorMessage,
+  requestConfirmation,
+  startCheckout,
+} from "@/lib/backend";
 
-const countries = [
-  "Nigeria",
-  "Ghana",
-  "Kenya",
-  "South Africa",
-  "Rwanda",
-  "Egypt",
-  "Uganda",
-  "Senegal",
-  "Ethiopia",
-  "Côte d'Ivoire",
+const titles = [
+  "Create your account",
+  "Personal info",
+  "Your education",
+  "Skills & availability",
+  "Certifications & work samples",
+  "Review your profile",
+  "Pay to Make Profile Visible",
 ];
-
-const focusAreas = [
-  "Software Engineering",
-  "Product Design",
-  "Data & Analytics",
-  "Product Management",
-  "Marketing",
-  "Operations",
+const subtitles = [
+  "Let's get you started — it only takes a few minutes.",
+  "Tell companies about yourself and your skills.",
+  "Formal or self-taught — every path counts.",
+  "Choose your skills, experience and availability.",
+  "Show your proof of work.",
+  "Check your details before making your profile visible.",
+  "Make your profile visible to companies looking for interns.",
 ];
-
-type PaymentMethod = "card" | "bank";
-
-export function ProspectSignupScreen() {
-  const [step, setStep] = useState(1);
-  const [complete, setComplete] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("card");
-  const [paid, setPaid] = useState(false);
-  const [focus, setFocus] = useState("");
-  const progress = Math.round((step / 7) * 100);
-
-  function continueFlow(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (step === 2 && !paid) return;
-    if (step === 7) {
-      setComplete(true);
-      return;
-    }
-    setStep((current) => Math.min(7, current + 1));
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-
+type Entry = Record<string, string>;
+function Choice({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
   return (
-    <SiteShell tone="muted">
-      <main className="mx-auto w-full max-w-2xl flex-1 px-5 pb-20 pt-4 sm:px-8">
-        {!complete ? <div className="mb-6">
-          <div className="mb-2 flex items-center justify-between text-sm font-medium">
-            <span>Step {step} of 7</span>
-            <span>{progress}%</span>
-          </div>
-          <div className="h-3 overflow-hidden rounded-full border-2 border-black bg-white">
-            <div
-              className="h-full bg-[#7446e8] transition-[width] duration-300"
-              style={{ width: `${progress}%` }}
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={
+        "rounded-sm border-2 border-black px-4 py-2.5 text-sm font-medium " +
+        (active ? "bg-black text-white" : "bg-white hover:bg-muted")
+      }
+    >
+      {children}
+    </button>
+  );
+}
+export function ProspectSignupScreen() {
+  const [step, setStep] = useState(0);
+  const [data, setData] = useState<Entry>({
+    phone: "+234",
+    state: "",
+    city: "",
+    category: "Tech",
+    experience: "",
+    availability: "Immediately",
+    stipendMin: "200",
+    stipendMax: "500",
+  });
+  const [errors, setErrors] = useState<Entry>({});
+  const [headshot, setHeadshot] = useState<{
+    name: string;
+    url: string;
+  } | null>(null);
+  const [bodyPhoto, setBodyPhoto] = useState<{
+    name: string;
+    url: string;
+  } | null>(null);
+  const [selfTaught, setSelfTaught] = useState(false);
+  const [education, setEducation] = useState<Entry[]>([
+    { school: "", program: "", year: "" },
+  ]);
+  const [certs, setCerts] = useState<Entry[]>([
+    { name: "", issuer: "", year: "" },
+  ]);
+  const [skills, setSkills] = useState<Skill[]>([]);
+  const [search, setSearch] = useState("");
+  const [files, setFiles] = useState<string[]>([]);
+  const [samples, setSamples] = useState([""]);
+  const [complete, setComplete] = useState(false);
+  const [visible, setVisible] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  useEffect(
+    () => () => {
+      if (headshot) URL.revokeObjectURL(headshot.url);
+    },
+    [headshot],
+  );
+  useEffect(
+    () => () => {
+      if (bodyPhoto) URL.revokeObjectURL(bodyPhoto.url);
+    },
+    [bodyPhoto],
+  );
+  const update = (key: string, value: string) =>
+    setData((current) => ({ ...current, [key]: value }));
+  function validate() {
+    const result: Entry = {};
+    if (step === 0) {
+      if ((data.fullName || "").trim().length < 2)
+        result.fullName = "Please enter your full name.";
+      if (!/^\S+@\S+\.\S+$/.test(data.email || ""))
+        result.email = "Enter a valid email address.";
+      if ((data.password || "").length < 8)
+        result.password = "Use at least 8 characters.";
+      if (
+        !NIGERIAN_STATES.includes(
+          data.state as (typeof NIGERIAN_STATES)[number],
+        )
+      )
+        result.state = "Select a Nigerian state.";
+      if (!data.city.trim()) result.city = "Enter your city.";
+    }
+    if (step === 1) {
+      if (!headshot) result.headshot = "Add a professional headshot.";
+      if ((data.headline || "").trim().length < 4)
+        result.headline = "Add a short professional headline.";
+      if ((data.bio || "").trim().length < 20)
+        result.bio = "Tell us about yourself in at least 20 characters.";
+      if (!/^\+234\d{10}$/.test(data.phone.replace(/[\s()-]/g, "")))
+        result.phone = "Use +234 followed by your 10-digit phone number.";
+    }
+    if (
+      step === 2 &&
+      !selfTaught &&
+      !education.some((entry) => entry.school.trim())
+    )
+      result.education = "Add a school/academy or choose self-taught.";
+    if (step === 3) {
+      if (!skills.length) result.skills = "Choose at least one skill.";
+      if (!data.experience) result.experience = "Choose your experience.";
+      if (
+        !data.stipendMin ||
+        !data.stipendMax ||
+        Number(data.stipendMin) > Number(data.stipendMax)
+      )
+        result.stipend = "Enter a minimum no higher than the maximum.";
+    }
+    if (
+      step === 4 &&
+      samples.some(
+        (sample) => sample.trim() && !/^https?:\/\/\S+$/.test(sample),
+      )
+    )
+      result.samples = "Use complete https:// or http:// work sample links.";
+    setErrors(result);
+    return !Object.keys(result).length;
+  }
+  function move(next: number) {
+    setErrors({});
+    setNotice("");
+    setStep(next);
+    window.scrollTo({ top: 0 });
+  }
+  function saveProfile(isVisible: boolean) {
+    savePreview("skifa-intern", {
+      fullName: data.fullName,
+      email: data.email,
+      headline: data.headline,
+      bio: data.bio,
+      state: data.state,
+      city: data.city,
+      country: "Nigeria",
+      phone: data.phone,
+      skill: skills[0]?.name,
+      skills,
+      experience: data.experience,
+      availability: data.availability,
+      visible: isVisible,
+      headshotName: headshot?.name,
+      fullBodyName: bodyPhoto?.name,
+      education: selfTaught ? [] : education,
+      certifications: certs,
+      workSamples: samples.filter(Boolean),
+    });
+    setVisible(isVisible);
+  }
+  async function finishLater() {
+    saveProfile(false);
+    setComplete(true);
+    window.scrollTo({ top: 0 });
+  }
+  async function pay() {
+    setBusy(true);
+    setNotice("");
+    saveProfile(false);
+    try {
+      await startCheckout("profile_visibility");
+    } catch (error) {
+      setNotice(errorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function resend() {
+    setBusy(true);
+    setNotice("");
+    try {
+      const response = await requestConfirmation(data.email);
+      setEmailSent(response.sent);
+      setNotice(
+        response.sent
+          ? "Confirmation email sent."
+          : "Email delivery is pending.",
+      );
+    } catch (error) {
+      setNotice(errorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+  function field(
+    key: string,
+    label: string,
+    placeholder = "",
+    type = "text",
+    maxLength = 100,
+  ) {
+    return (
+      <FormField key={key} label={label}>
+        {key === "bio" ? (
+          <FormTextarea
+            value={data[key] || ""}
+            maxLength={500}
+            placeholder={placeholder}
+            onChange={(event) => update(key, event.target.value)}
+            aria-invalid={!!errors[key]}
+          />
+        ) : (
+          <FormInput
+            value={data[key] || ""}
+            maxLength={maxLength}
+            type={type}
+            placeholder={placeholder}
+            onChange={(event) => update(key, event.target.value)}
+            aria-invalid={!!errors[key]}
+          />
+        )}
+        {errors[key] ? (
+          <p role="alert" className="mt-1.5 text-sm font-medium">
+            {errors[key]}
+          </p>
+        ) : null}
+      </FormField>
+    );
+  }
+  function addSkill(name: string) {
+    const value = name.trim();
+    if (value.length < 2) return;
+    if (
+      !skills.some((skill) => skill.name.toLowerCase() === value.toLowerCase())
+    )
+      setSkills([...skills, { name: value, level: "Beginner" }]);
+    setSearch("");
+  }
+  function media(
+    label: string,
+    photo: { name: string; url: string } | null,
+    setPhoto: (photo: { name: string; url: string }) => void,
+    required = false,
+  ) {
+    return (
+      <div>
+        <p className="mb-2 text-sm font-medium">{label}</p>
+        <label className="flex cursor-pointer items-center gap-4 rounded-md border-2 border-dashed border-black p-4">
+          {photo ? (
+            <span
+              role="img"
+              aria-label={label + " preview"}
+              className="size-20 shrink-0 rounded-sm border-2 border-black bg-cover bg-center"
+              style={{ backgroundImage: "url(" + photo.url + ")" }}
             />
-          </div>
-        </div> : null}
-
-        <FormCard>
-          {complete ? <Completion /> : <form onSubmit={continueFlow}>
-            {step === 1 ? <AccountStep /> : null}
-            {step === 2 ? (
-              <PaymentStep
-                method={paymentMethod}
-                paid={paid}
-                onMethodChange={setPaymentMethod}
-                onPaid={() => setPaid(true)}
-              />
-            ) : null}
-            {step === 3 ? <ProfileStep /> : null}
-            {step === 4 ? <FocusStep value={focus} onChange={setFocus} /> : null}
-            {step === 5 ? <ExperienceStep /> : null}
-            {step === 6 ? <PreferencesStep /> : null}
-            {step === 7 ? <FinishStep /> : null}
-
-            <div className="mt-8 flex items-center justify-between gap-4">
-              {step > 1 ? (
-                <button
-                  type="button"
-                  className={secondaryButtonClass}
-                  onClick={() => setStep((current) => Math.max(1, current - 1))}
-                >
-                  ← Back
-                </button>
-              ) : (
-                <span />
-              )}
-              <button
-                type="submit"
-                disabled={step === 2 && !paid}
-                className={primaryButtonClass}
-              >
-                {step === 7 ? "Create profile" : "Continue →"}
-              </button>
+          ) : (
+            <span
+              className="grid size-20 shrink-0 place-items-center rounded-sm border-2 border-black text-3xl"
+              aria-hidden
+            >
+              ↑
+            </span>
+          )}
+          <span className="text-sm">
+            <span className="font-medium">
+              {photo ? photo.name : "Upload photo"}
+            </span>
+            <span className="mt-1 block text-muted-foreground">
+              PNG or JPG, up to 2 MB
+            </span>
+          </span>
+          <input
+            aria-label={label}
+            type="file"
+            accept="image/png,image/jpeg"
+            className="sr-only"
+            required={required}
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (!file) return;
+              if (
+                file.size > 2e6 ||
+                !["image/png", "image/jpeg"].includes(file.type)
+              ) {
+                setErrors((current) => ({
+                  ...current,
+                  headshot: "Choose a PNG or JPG up to 2 MB.",
+                }));
+                return;
+              }
+              setErrors((current) => ({ ...current, headshot: "" }));
+              setPhoto({ name: file.name, url: URL.createObjectURL(file) });
+            }}
+          />
+        </label>
+      </div>
+    );
+  }
+  const matches = SKILL_CATEGORIES[data.category].filter((name) =>
+    name.toLowerCase().includes(search.toLowerCase()),
+  );
+  const reviewRows: [string, string, number][] = [
+    [
+      "Account",
+      [data.fullName, data.email, data.city + ", " + data.state].join(" · "),
+      0,
+    ],
+    [
+      "Personal info",
+      [data.headline, data.bio, headshot?.name].filter(Boolean).join(" · "),
+      1,
+    ],
+    [
+      "Education",
+      selfTaught
+        ? "Self-taught"
+        : education
+            .map((item) =>
+              [item.school, item.program, item.year].filter(Boolean).join(", "),
+            )
+            .join("; "),
+      2,
+    ],
+    [
+      "Skills & availability",
+      skills.map((skill) => skill.name + " (" + skill.level + ")").join(", ") +
+        " · " +
+        data.experience +
+        " · " +
+        data.availability +
+        " · $" +
+        data.stipendMin +
+        "–$" +
+        data.stipendMax +
+        "/month",
+      3,
+    ],
+    [
+      "Certifications & work samples",
+      certs
+        .map((cert) => cert.name)
+        .filter(Boolean)
+        .concat(files, samples.filter(Boolean))
+        .join(", ") || "No entries added",
+      4,
+    ],
+  ];
+  return (
+    <SiteShell tone="muted" showFooter={false}>
+      <main className="mx-auto w-full max-w-2xl px-5 pb-20 pt-4 sm:px-8">
+        {complete ? (
+          <FormCard className="text-center">
+            <div className="mx-auto grid size-14 place-items-center rounded-full border-2 border-black text-2xl">
+              ✓
             </div>
-          </form>}
-        </FormCard>
-
-        {step === 1 ? (
-          <p className="mt-6 text-center text-sm text-zinc-600">
-            Already have an account?{" "}
-            <a href="/login" className="font-medium text-black underline underline-offset-2">
-              Log in
-            </a>
+            <h1 className="mt-6 text-4xl font-bold">Profile saved</h1>
+            <p className="mt-3 font-medium">
+              {visible
+                ? "Your profile is visible to companies."
+                : "Your profile is not visible yet. You can pay later from your dashboard."}
+            </p>
+            <p className="mt-3 text-sm text-muted-foreground">
+              {emailSent
+                ? "We've sent a confirmation email with your next steps."
+                : "Confirmation email is pending — email delivery is not connected yet."}
+            </p>
+            <button
+              className="mt-3 text-sm font-medium underline underline-offset-4 disabled:opacity-50"
+              disabled={busy}
+              onClick={resend}
+            >
+              Resend email
+            </button>
+            <div>
+              <Link
+                href="/intern/dashboard"
+                className={"mt-8 " + primaryButtonClass + " !bg-accent"}
+              >
+                Go to dashboard
+              </Link>
+            </div>
+          </FormCard>
+        ) : (
+          <>
+            <div className="mb-6">
+              <div className="mb-2 flex justify-between text-sm font-medium">
+                <span>Step {step + 1} of 7</span>
+                <span className="text-muted-foreground">
+                  {Math.round(((step + 1) / 7) * 100)}%
+                </span>
+              </div>
+              <div className="h-3 rounded-sm border-2 border-black">
+                <div
+                  className="h-full bg-accent transition-all"
+                  style={{ width: ((step + 1) / 7) * 100 + "%" }}
+                />
+              </div>
+            </div>
+            <FormCard>
+              <h1 className="text-3xl font-bold sm:text-4xl">{titles[step]}</h1>
+              <p className="mt-2 text-muted-foreground">{subtitles[step]}</p>
+              <div className="mt-8 space-y-5">
+                {step === 0 ? (
+                  <>
+                    {field("fullName", "Full name", "Amara Okafor")}
+                    {field("email", "Email", "amara@example.com", "email", 255)}
+                    {field(
+                      "password",
+                      "Password",
+                      "At least 8 characters",
+                      "password",
+                    )}
+                    <FormField label="Nigerian state">
+                      <Dropdown
+                        value={data.state}
+                        onChange={(event) =>
+                          update("state", event.target.value)
+                        }
+                      >
+                        <option value="">Select state</option>
+                        {NIGERIAN_STATES.map((state) => (
+                          <option key={state}>{state}</option>
+                        ))}
+                      </Dropdown>
+                      {errors.state ? (
+                        <p role="alert" className="mt-1 text-sm">
+                          {errors.state}
+                        </p>
+                      ) : null}
+                    </FormField>
+                    {field("city", "City", "Lagos")}
+                  </>
+                ) : null}
+                {step === 1 ? (
+                  <>
+                    {media(
+                      "Professional headshot (required)",
+                      headshot,
+                      setHeadshot,
+                      true,
+                    )}
+                    {errors.headshot ? (
+                      <p role="alert" className="text-sm">
+                        {errors.headshot}
+                      </p>
+                    ) : null}
+                    {field("headline", "Headline", "Frontend intern")}
+                    {field(
+                      "bio",
+                      "About Me (Tell us about yourself and your skills.)",
+                      "Tell companies about yourself and your skills.",
+                    )}
+                    {field("phone", "Phone", "+234", "tel", 20)}
+                    {media(
+                      "Full-body photo (optional)",
+                      bodyPhoto,
+                      setBodyPhoto,
+                    )}
+                    <div className="rounded-md border-2 border-dashed border-black p-5">
+                      <p className="font-medium">Profile video (Pro)</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Locked. Upgrade to Pro after creating your profile.
+                      </p>
+                    </div>
+                  </>
+                ) : null}
+                {step === 2 ? (
+                  <>
+                    <label className="flex items-center gap-3 text-sm font-medium">
+                      <input
+                        type="checkbox"
+                        className="size-5 accent-black"
+                        checked={selfTaught}
+                        onChange={(event) =>
+                          setSelfTaught(event.target.checked)
+                        }
+                      />
+                      I&apos;m self-taught
+                    </label>
+                    {!selfTaught ? (
+                      <>
+                        {education.map((entry, index) => (
+                          <div
+                            key={index}
+                            className="space-y-4 rounded-md border-2 border-black p-5"
+                          >
+                            <div className="flex justify-between text-sm">
+                              <span className="font-medium">
+                                Entry {index + 1}
+                              </span>
+                              {education.length > 1 ? (
+                                <button
+                                  onClick={() =>
+                                    setEducation(
+                                      education.filter((_, i) => i !== index),
+                                    )
+                                  }
+                                  className="underline"
+                                >
+                                  Remove
+                                </button>
+                              ) : null}
+                            </div>
+                            {[
+                              [
+                                "school",
+                                "School/Academy (Where did you learn this skill?)",
+                                "University of Lagos",
+                              ],
+                              ["program", "Program", "Computer Science"],
+                              ["year", "Graduation year", "2025"],
+                            ].map(([key, label, placeholder]) => (
+                              <FormField key={key} label={label}>
+                                <FormInput
+                                  value={entry[key]}
+                                  placeholder={placeholder}
+                                  maxLength={key === "year" ? 4 : 100}
+                                  onChange={(event) =>
+                                    setEducation(
+                                      education.map((item, i) =>
+                                        i === index
+                                          ? {
+                                              ...item,
+                                              [key]: event.target.value,
+                                            }
+                                          : item,
+                                      ),
+                                    )
+                                  }
+                                />
+                              </FormField>
+                            ))}
+                          </div>
+                        ))}
+                        <button
+                          onClick={() =>
+                            setEducation([
+                              ...education,
+                              { school: "", program: "", year: "" },
+                            ])
+                          }
+                          className="text-sm font-medium underline underline-offset-4"
+                        >
+                          + Add another
+                        </button>
+                      </>
+                    ) : null}
+                    {errors.education ? (
+                      <p role="alert" className="text-sm">
+                        {errors.education}
+                      </p>
+                    ) : null}
+                  </>
+                ) : null}
+                {step === 3 ? (
+                  <>
+                    <FormField label="Category">
+                      <Dropdown
+                        value={data.category}
+                        onChange={(event) => {
+                          update("category", event.target.value);
+                          setSearch("");
+                        }}
+                      >
+                        {Object.keys(SKILL_CATEGORIES).map((category) => (
+                          <option key={category}>{category}</option>
+                        ))}
+                      </Dropdown>
+                    </FormField>
+                    <FormField label="Search skills">
+                      <FormInput
+                        placeholder="Search or enter a custom skill"
+                        value={search}
+                        maxLength={80}
+                        onChange={(event) => setSearch(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            addSkill(search);
+                          }
+                        }}
+                      />
+                    </FormField>
+                    <div className="flex flex-wrap gap-2">
+                      {matches.map((name) => (
+                        <Choice
+                          key={name}
+                          active={skills.some((skill) => skill.name === name)}
+                          onClick={() => addSkill(name)}
+                        >
+                          {name}
+                        </Choice>
+                      ))}
+                    </div>
+                    {search.trim().length >= 2 &&
+                    !skills.some(
+                      (skill) =>
+                        skill.name.toLowerCase() ===
+                        search.trim().toLowerCase(),
+                    ) ? (
+                      <button
+                        className="text-sm font-medium underline underline-offset-4"
+                        onClick={() => addSkill(search)}
+                      >
+                        + Add custom skill: {search.trim()}
+                      </button>
+                    ) : null}
+                    {skills.map((skill) => (
+                      <div
+                        key={skill.name}
+                        className="grid gap-3 rounded-md border-2 border-black p-4 sm:grid-cols-[1fr_180px_auto] sm:items-center"
+                      >
+                        <span className="text-sm font-medium">
+                          {skill.name}
+                        </span>
+                        <Dropdown
+                          aria-label={skill.name + " level"}
+                          value={skill.level}
+                          onChange={(event) =>
+                            setSkills(
+                              skills.map((item) =>
+                                item.name === skill.name
+                                  ? {
+                                      ...item,
+                                      level: event.target
+                                        .value as Skill["level"],
+                                    }
+                                  : item,
+                              ),
+                            )
+                          }
+                        >
+                          {SKILL_LEVELS.map((level) => (
+                            <option key={level}>{level}</option>
+                          ))}
+                        </Dropdown>
+                        <button
+                          aria-label={"Remove " + skill.name}
+                          className="text-sm underline"
+                          onClick={() =>
+                            setSkills(
+                              skills.filter((item) => item.name !== skill.name),
+                            )
+                          }
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                    {errors.skills ? (
+                      <p role="alert" className="text-sm">
+                        {errors.skills}
+                      </p>
+                    ) : null}
+                    <FormField label="Experience">
+                      <Dropdown
+                        value={data.experience}
+                        onChange={(event) =>
+                          update("experience", event.target.value)
+                        }
+                      >
+                        <option value="">Select experience</option>
+                        {EXPERIENCE_OPTIONS.map((value) => (
+                          <option key={value}>{value}</option>
+                        ))}
+                      </Dropdown>
+                      {errors.experience ? (
+                        <p role="alert" className="text-sm">
+                          {errors.experience}
+                        </p>
+                      ) : null}
+                    </FormField>
+                    <FormField label="Availability">
+                      <Dropdown
+                        value={data.availability}
+                        onChange={(event) =>
+                          update("availability", event.target.value)
+                        }
+                      >
+                        {["Immediately", "In 1 month", "Flexible"].map(
+                          (value) => (
+                            <option key={value}>{value}</option>
+                          ),
+                        )}
+                      </Dropdown>
+                    </FormField>
+                    <FormField label="Expected Earnings (Make yourself affordable.)">
+                      <p className="mb-2 text-xs text-muted-foreground">
+                        Monthly earnings in USD
+                      </p>
+                      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+                        <FormInput
+                          aria-label="Minimum earnings"
+                          type="number"
+                          min={0}
+                          value={data.stipendMin}
+                          onChange={(event) =>
+                            update("stipendMin", event.target.value)
+                          }
+                        />
+                        <span>to</span>
+                        <FormInput
+                          aria-label="Maximum earnings"
+                          type="number"
+                          min={0}
+                          value={data.stipendMax}
+                          onChange={(event) =>
+                            update("stipendMax", event.target.value)
+                          }
+                        />
+                      </div>
+                      {errors.stipend ? (
+                        <p role="alert" className="text-sm">
+                          {errors.stipend}
+                        </p>
+                      ) : null}
+                    </FormField>
+                  </>
+                ) : null}
+                {step === 4 ? (
+                  <>
+                    {certs.map((entry, index) => (
+                      <div
+                        key={index}
+                        className="space-y-4 rounded-md border-2 border-black p-5"
+                      >
+                        <div className="flex justify-between text-sm">
+                          <span className="font-medium">
+                            Certification {index + 1}
+                          </span>
+                          {certs.length > 1 ? (
+                            <button
+                              className="underline"
+                              onClick={() =>
+                                setCerts(certs.filter((_, i) => i !== index))
+                              }
+                            >
+                              Remove
+                            </button>
+                          ) : null}
+                        </div>
+                        {[
+                          ["name", "Certification name"],
+                          ["issuer", "Issuer"],
+                          ["year", "Year"],
+                        ].map(([key, label]) => (
+                          <FormField key={key} label={label}>
+                            <FormInput
+                              value={entry[key]}
+                              maxLength={key === "year" ? 4 : 100}
+                              onChange={(event) =>
+                                setCerts(
+                                  certs.map((item, i) =>
+                                    i === index
+                                      ? { ...item, [key]: event.target.value }
+                                      : item,
+                                  ),
+                                )
+                              }
+                            />
+                          </FormField>
+                        ))}
+                      </div>
+                    ))}
+                    <button
+                      onClick={() =>
+                        setCerts([...certs, { name: "", issuer: "", year: "" }])
+                      }
+                      className="text-sm font-medium underline underline-offset-4"
+                    >
+                      + Add certification
+                    </button>
+                    <label className="flex cursor-pointer flex-col items-center gap-2 rounded-md border-2 border-dashed border-black p-8 text-center">
+                      <span className="font-medium">
+                        Certificates &amp; accolades
+                      </span>
+                      <span className="text-sm text-muted-foreground">
+                        PDF, JPG or PNG · up to 5 MB each
+                      </span>
+                      <input
+                        aria-label="Certificates & accolades"
+                        className="sr-only"
+                        type="file"
+                        accept=".pdf,image/png,image/jpeg"
+                        multiple
+                        onChange={(event) => {
+                          const selected = Array.from(event.target.files || []);
+                          if (selected.some((file) => file.size > 5e6)) {
+                            setErrors({
+                              files: "Each file must be no larger than 5 MB.",
+                            });
+                            return;
+                          }
+                          setFiles([
+                            ...files,
+                            ...selected.map((file) => file.name),
+                          ]);
+                        }}
+                      />
+                    </label>
+                    {errors.files ? <p role="alert">{errors.files}</p> : null}
+                    {files.map((file, index) => (
+                      <p key={index} className="text-sm">
+                        {file}
+                      </p>
+                    ))}
+                    <div className="space-y-3">
+                      <p className="text-sm font-medium">Work sample links</p>
+                      {samples.map((sample, index) => (
+                        <FormInput
+                          key={index}
+                          aria-label={"Work sample " + (index + 1)}
+                          type="url"
+                          value={sample}
+                          placeholder="https://your-portfolio.example"
+                          onChange={(event) =>
+                            setSamples(
+                              samples.map((item, i) =>
+                                i === index ? event.target.value : item,
+                              ),
+                            )
+                          }
+                        />
+                      ))}
+                      <button
+                        onClick={() => setSamples([...samples, ""])}
+                        className="text-sm font-medium underline underline-offset-4"
+                      >
+                        + Add another link
+                      </button>
+                      {errors.samples ? (
+                        <p role="alert">{errors.samples}</p>
+                      ) : null}
+                    </div>
+                  </>
+                ) : null}
+                {step === 5 ? (
+                  <div className="space-y-4">
+                    {reviewRows.map(([label, value, target]) => (
+                      <div
+                        key={label}
+                        className="rounded-md border-2 border-black p-5"
+                      >
+                        <div className="mb-3 flex justify-between">
+                          <h2 className="text-lg font-bold">{label}</h2>
+                          <button
+                            onClick={() => move(target)}
+                            className="text-sm font-medium underline underline-offset-4"
+                          >
+                            Edit
+                          </button>
+                        </div>
+                        <p className="break-words text-sm text-muted-foreground">
+                          {value}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                {step === 6 ? (
+                  <>
+                    <div className="rounded-md border-2 border-black p-5">
+                      <p className="text-sm font-medium">
+                        Profile visibility fee (one-time)
+                      </p>
+                      <p className="mt-3 font-display text-3xl font-bold">
+                        $1.00
+                      </p>
+                      <p className="mt-3 text-sm text-muted-foreground">
+                        Pay to make your profile visible to companies. Your
+                        profile stays private until payment is confirmed.
+                      </p>
+                    </div>
+                    <button
+                      disabled={busy}
+                      onClick={pay}
+                      className={"w-full " + primaryButtonClass}
+                    >
+                      {busy ? "Connecting…" : "Pay to Make Profile Visible"}
+                    </button>
+                    <button
+                      disabled={busy}
+                      onClick={finishLater}
+                      className="block w-full text-center text-sm font-medium underline underline-offset-4"
+                    >
+                      Pay later
+                    </button>
+                  </>
+                ) : null}
+              </div>
+              <div className="mt-10 flex justify-between gap-4">
+                {step > 0 ? (
+                  <button
+                    onClick={() => move(step - 1)}
+                    className={secondaryButtonClass}
+                  >
+                    ← Back
+                  </button>
+                ) : (
+                  <span />
+                )}
+                {step < 6 ? (
+                  <button
+                    className={primaryButtonClass}
+                    onClick={() => {
+                      if (validate()) move(step + 1);
+                    }}
+                  >
+                    Continue →
+                  </button>
+                ) : null}
+              </div>
+            </FormCard>
+            {step === 0 ? (
+              <p className="mt-6 text-center text-sm">
+                Already have an account?{" "}
+                <Link
+                  href="/login"
+                  className="font-medium underline underline-offset-4"
+                >
+                  Log in
+                </Link>
+              </p>
+            ) : null}
+          </>
+        )}
+        {notice ? (
+          <p
+            role="status"
+            className="mt-5 rounded-md border-2 border-black p-4 text-sm"
+          >
+            {notice}
           </p>
         ) : null}
       </main>
     </SiteShell>
   );
-}
-
-function AccountStep() {
-  return (
-    <WizardStep
-      title="Create your account"
-      subtitle="Let's get you started — it only takes a few minutes."
-    >
-      <FormField label="Full name">
-        <FormInput required maxLength={100} autoComplete="name" placeholder="Amara Okafor" />
-      </FormField>
-      <FormField label="Email">
-        <FormInput required maxLength={255} type="email" autoComplete="email" placeholder="amara@example.com" />
-      </FormField>
-      <FormField label="Password">
-        <FormInput required minLength={8} type="password" autoComplete="new-password" placeholder="At least 8 characters" />
-      </FormField>
-      <FormField label="Country">
-        <Dropdown defaultValue="Nigeria">
-          {countries.map((country) => <option key={country}>{country}</option>)}
-        </Dropdown>
-      </FormField>
-    </WizardStep>
-  );
-}
-
-function PaymentStep({ method, paid, onMethodChange, onPaid }: { method: PaymentMethod; paid: boolean; onMethodChange: (method: PaymentMethod) => void; onPaid: () => void }) {
-  return (
-    <WizardStep title="Pay the sign-up fee" subtitle="A small fee keeps Skifa full of serious talent.">
-      <div className="rounded-sm border-2 border-black">
-        <p className="border-b-2 border-black px-4 py-3 text-sm font-medium">Order summary</p>
-        <div className="flex justify-between gap-4 px-4 py-3 text-sm"><span>Skifa sign-up fee (one-time)</span><span>$1.00</span></div>
-        <div className="flex justify-between gap-4 border-t border-zinc-300 px-4 py-3 font-medium"><span>Total</span><span>$1.00</span></div>
-      </div>
-
-      <div>
-        <p className="mb-2 text-sm font-medium">Payment method</p>
-        <div className="grid grid-cols-2 gap-3">
-          <MethodButton active={method === "card"} onClick={() => onMethodChange("card")}>Card</MethodButton>
-          <MethodButton active={method === "bank"} onClick={() => onMethodChange("bank")}>Bank transfer</MethodButton>
-        </div>
-      </div>
-
-      {method === "card" ? (
-        <div className="space-y-5">
-          <FormField label="Card number"><FormInput inputMode="numeric" placeholder="4242 4242 4242 4242" /></FormField>
-          <div className="grid grid-cols-2 gap-4">
-            <FormField label="Expiry"><FormInput inputMode="numeric" placeholder="MM/YY" /></FormField>
-            <FormField label="CVC"><FormInput inputMode="numeric" placeholder="123" /></FormField>
-          </div>
-          <button type="button" className={`w-full ${primaryButtonClass}`} onClick={onPaid}>{paid ? "Paid" : "Pay $1"}</button>
-        </div>
-      ) : (
-        <div className="rounded-sm border-2 border-black p-4 text-sm">
-          <p>Transfer $1.00 (≈ ₦1,550) to:</p>
-          <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-6 gap-y-2">
-            <dt className="text-zinc-500">Bank</dt><dd className="font-medium">Providus Bank</dd>
-            <dt className="text-zinc-500">Account</dt><dd className="font-medium">9902 418 337</dd>
-            <dt className="text-zinc-500">Name</dt><dd className="font-medium">Skifa Talent Ltd</dd>
-            <dt className="text-zinc-500">Reference</dt><dd className="font-medium">SKF-TU-2041</dd>
-          </dl>
-          <button type="button" className={`mt-5 w-full ${primaryButtonClass}`} onClick={onPaid}>{paid ? "Payment confirmed" : "I've sent $1"}</button>
-        </div>
-      )}
-    </WizardStep>
-  );
-}
-
-function ProfileStep() {
-  return <WizardStep title="Tell us about yourself" subtitle="Help companies understand who you are and what you want to do."><FormField label="Professional headline"><FormInput required maxLength={100} placeholder="Aspiring product designer" /></FormField><FormField label="Short bio"><FormTextarea required maxLength={500} placeholder="Share a little about your background and goals" /></FormField></WizardStep>;
-}
-
-function FocusStep({ value, onChange }: { value: string; onChange: (value: string) => void }) {
-  return <WizardStep title="Choose your focus" subtitle="What kind of opportunity are you looking for?"><div className="grid gap-3 sm:grid-cols-2">{focusAreas.map((area) => <label key={area} className={`flex min-h-14 cursor-pointer items-center rounded-sm border-2 px-4 text-sm font-medium transition ${value === area ? "border-black bg-[#eee8ff] shadow-[3px_3px_0_#000]" : "border-black bg-white"}`}><input required type="radio" name="focus" className="mr-3 accent-[#7446e8]" checked={value === area} onChange={() => onChange(area)} />{area}</label>)}</div><FormField label="Skills" hint="Separate each skill with a comma."><FormTextarea required placeholder="e.g. Figma, user research, prototyping" /></FormField></WizardStep>;
-}
-
-function ExperienceStep() {
-  return <WizardStep title="Your experience" subtitle="Tell us where you are in your career journey."><FormField label="Experience level"><Dropdown required defaultValue=""><option value="" disabled>Select your level</option><option>Student</option><option>Recent graduate</option><option>0–2 years experience</option><option>3+ years experience</option></Dropdown></FormField><FormField label="Highest level of education"><Dropdown required defaultValue=""><option value="" disabled>Select education</option><option>Secondary school</option><option>Diploma</option><option>Bachelor&apos;s degree</option><option>Master&apos;s degree</option><option>Other</option></Dropdown></FormField></WizardStep>;
-}
-
-function PreferencesStep() {
-  return <WizardStep title="Availability and preferences" subtitle="Let companies know when and how you can work."><FormField label="When can you start?"><Dropdown required defaultValue=""><option value="" disabled>Select availability</option><option>Immediately</option><option>Within 2 weeks</option><option>Within 1 month</option><option>More than 1 month</option></Dropdown></FormField><FormField label="Work preference"><Dropdown required defaultValue=""><option value="" disabled>Select preference</option><option>Remote</option><option>Hybrid</option><option>On-site</option><option>Open to any</option></Dropdown></FormField></WizardStep>;
-}
-
-function FinishStep() {
-  return <WizardStep title="Finish your profile" subtitle="Add links that help companies learn more about your work."><FormField label="LinkedIn profile (optional)"><FormInput type="url" placeholder="https://linkedin.com/in/yourname" /></FormField><FormField label="Portfolio or website (optional)"><FormInput type="url" placeholder="https://yourportfolio.com" /></FormField><div className="rounded-sm border-2 border-black bg-white p-4 text-sm text-zinc-600">By creating your profile, you agree that the information you provide may be shared with companies offering relevant opportunities.</div></WizardStep>;
-}
-
-function WizardStep({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
-  return <div><h1 className="font-display text-3xl font-bold leading-9 text-black sm:text-4xl sm:leading-10">{title}</h1><p className="mt-2 text-zinc-600">{subtitle}</p><div className="mt-7 space-y-5">{children}</div></div>;
-}
-
-function MethodButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
-  return <button type="button" aria-pressed={active} onClick={onClick} className={`h-11 rounded-sm border-2 border-black px-4 text-sm font-medium transition ${active ? "bg-black text-white" : "bg-white text-black"}`}>{children}</button>;
-}
-
-function Completion() {
-  return <div className="py-10 text-center" role="status"><div className="mx-auto mb-5 flex size-14 items-center justify-center rounded-full bg-[#7446e8] text-2xl text-white">✓</div><h1 className="font-display text-4xl font-bold">You&apos;re all set</h1><p className="mx-auto mt-3 max-w-sm text-zinc-600">Your prospect profile is ready. We&apos;ll use it to connect you with suitable opportunities.</p><Link href="/" className={`mt-8 ${primaryButtonClass}`}>Back to home</Link></div>;
 }
