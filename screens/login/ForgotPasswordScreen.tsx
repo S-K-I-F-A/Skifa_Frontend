@@ -10,13 +10,29 @@ import {
   primaryButtonClass,
 } from "@/components/ui/form-controls";
 import { FormCard, FormHeading } from "@/components/ui/form-layout";
+import { backendRequest, errorMessage } from "@/lib/backend";
 
 export function ForgotPasswordScreen() {
   const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setSent(true);
+    setBusy(true);
+    setNotice("");
+    const form = new FormData(event.currentTarget);
+    try {
+      await backendRequest("/auth/password/forgot", {
+        method: "POST",
+        body: { email: form.get("email") },
+      });
+      setSent(true);
+    } catch (error) {
+      setNotice(errorMessage(error));
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -40,6 +56,7 @@ export function ForgotPasswordScreen() {
                     <FormField label="Email">
                       <FormInput
                         required
+                        name="email"
                         type="email"
                         maxLength={255}
                         autoComplete="email"
@@ -49,10 +66,16 @@ export function ForgotPasswordScreen() {
                   </div>
                   <button
                     type="submit"
+                    disabled={busy}
                     className={`mt-8 w-full ${primaryButtonClass}`}
                   >
-                    Send reset link
+                    {busy ? "Sending…" : "Send reset link"}
                   </button>
+                  {notice ? (
+                    <p role="alert" className="mt-4 text-sm">
+                      {notice}
+                    </p>
+                  ) : null}
                 </>
               )}
 

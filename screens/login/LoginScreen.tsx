@@ -1,6 +1,9 @@
 "use client";
 import Link from "next/link";
+import type { Route } from "next";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { backendRequest, errorMessage } from "@/lib/backend";
 import { SiteShell } from "@/components/layout/site-shell";
 import {
   FormField,
@@ -10,6 +13,8 @@ import {
 import { FormCard, FormHeading } from "@/components/ui/form-layout";
 export function LoginScreen() {
   const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const router = useRouter();
   return (
     <SiteShell>
       <main className="flex flex-1 flex-col">
@@ -21,14 +26,40 @@ export function LoginScreen() {
             />
             <form
               className="mt-8 space-y-5"
-              onSubmit={(event) => {
+              onSubmit={async (event) => {
                 event.preventDefault();
-                setNotice("Demo only — sign-in isn't connected yet.");
+                setBusy(true);
+                setNotice("");
+                const form = new FormData(event.currentTarget);
+                try {
+                  const result = await backendRequest<{
+                    nextPath?: string;
+                    user?: { role?: string };
+                  }>("/auth/login", {
+                    method: "POST",
+                    body: {
+                      email: form.get("email"),
+                      password: form.get("password"),
+                    },
+                  });
+                  router.push(
+                    (result.nextPath ||
+                      (result.user?.role === "company"
+                        ? "/company/dashboard"
+                        : "/intern/dashboard")) as Route,
+                  );
+                  router.refresh();
+                } catch (error) {
+                  setNotice(errorMessage(error));
+                } finally {
+                  setBusy(false);
+                }
               }}
             >
               <FormField label="Email">
                 <FormInput
                   required
+                  name="email"
                   type="email"
                   autoComplete="email"
                   maxLength={255}
@@ -38,14 +69,19 @@ export function LoginScreen() {
               <FormField label="Password">
                 <FormInput
                   required
+                  name="password"
                   type="password"
                   autoComplete="current-password"
                   minLength={6}
                   placeholder="••••••••"
                 />
               </FormField>
-              <button type="submit" className={`w-full ${primaryButtonClass}`}>
-                Log in
+              <button
+                disabled={busy}
+                type="submit"
+                className={`w-full ${primaryButtonClass}`}
+              >
+                {busy ? "Logging in…" : "Log in"}
               </button>
               {notice ? (
                 <p role="status" className="text-sm text-muted-foreground">

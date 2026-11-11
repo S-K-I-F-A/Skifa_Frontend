@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { NIGERIAN_STATES } from "@/config/mvp";
 import { savePreview } from "@/lib/preview-store";
 import { useEntitlements } from "@/lib/use-entitlements";
-import { startCheckout, errorMessage } from "@/lib/backend";
+import { backendRequest, startCheckout, errorMessage } from "@/lib/backend";
 import { SiteShell } from "@/components/layout/site-shell";
 import {
   FormField,
@@ -55,6 +55,7 @@ export function CompanySignupScreen() {
   const router = useRouter();
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [registered, setRegistered] = useState(false);
   function persist() {
     savePreview("skifa-company", {
       ...Object.fromEntries(
@@ -68,6 +69,7 @@ export function CompanySignupScreen() {
     persist();
     setBusy(true);
     try {
+      await backendRequest("/company/profile/submit", { method: "POST" });
       await startCheckout("company_activation");
     } catch (error) {
       setNotice(errorMessage(error));
@@ -77,7 +79,7 @@ export function CompanySignupScreen() {
   }
   const update = (key: string, value: string) =>
     setData((current) => ({ ...current, [key]: value }));
-  function advance() {
+  async function advance() {
     const nextErrors: Record<string, string> = {};
     required[step].forEach((key) => {
       if (!data[key]?.trim()) nextErrors[key] = "Required";
@@ -96,9 +98,50 @@ export function CompanySignupScreen() {
       nextErrors.contactEmail = "Enter a valid email";
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;
-    if (step < 3) setStep(step + 1);
-    else {
-      void activate();
+    setBusy(true);
+    setNotice("");
+    try {
+      if (step === 0 && !registered) {
+        await backendRequest("/auth/register/company", {
+          method: "POST",
+          body: {
+            email: data.email,
+            password: data.password,
+            acceptedTerms: true,
+          },
+        });
+        setRegistered(true);
+      }
+      if (step === 2) {
+        await backendRequest("/company/profile", {
+          method: "PUT",
+          body: {
+            name: data.name,
+            industry: data.industry,
+            size: data.size,
+            location: {
+              country: "Nigeria",
+              state: data.state,
+              city: data.city,
+              address: data.address,
+            },
+            description: data.description,
+            contact: {
+              name: data.contactName,
+              jobTitle: data.jobTitle,
+              phone: data.phone,
+              email: data.contactEmail,
+            },
+          },
+        });
+        persist();
+      }
+      if (step < 3) setStep(step + 1);
+      else await activate();
+    } catch (error) {
+      setNotice(errorMessage(error));
+    } finally {
+      setBusy(false);
     }
   }
   function field(
@@ -202,7 +245,7 @@ export function CompanySignupScreen() {
               className="mt-6 grid gap-4 sm:grid-cols-2"
               onSubmit={(event) => {
                 event.preventDefault();
-                advance();
+                void advance();
               }}
             >
               {step === 3 ? (

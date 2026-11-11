@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ShieldIcon } from "@/components/ui/icons";
 import { SiteShell } from "@/components/layout/site-shell";
 import {
@@ -22,6 +22,7 @@ import { talent, type Talent } from "./data";
 import { TalentPortrait } from "@/components/talent/talent-card";
 import { useEntitlements } from "@/lib/use-entitlements";
 import { NIGERIAN_STATES } from "@/config/mvp";
+import { backendRequest, errorMessage } from "@/lib/backend";
 
 function Verified({ value }: { value: boolean }) {
   return value ? (
@@ -45,10 +46,29 @@ export function TalentDirectory() {
   const [experience, setExperience] = useState("");
   const [verified, setVerified] = useState("all");
   const [availability, setAvailability] = useState<string[]>([]);
-  const [stipend, setStipend] = useState(600);
+  const [stipend, setStipend] = useState(600000);
   const [sort, setSort] = useState("newest");
   const [showFilters, setShowFilters] = useState(false);
-  const filtered = talent
+  const [people, setPeople] = useState<Talent[]>(talent);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  useEffect(() => {
+    let active = true;
+    backendRequest<{ items: Talent[] }>("/talent")
+      .then((result) => {
+        if (active) setPeople(result.items);
+      })
+      .catch((error) => {
+        if (active) setLoadError(errorMessage(error));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  const filtered = people
     .filter(
       (person) =>
         (!query ||
@@ -83,7 +103,7 @@ export function TalentDirectory() {
     setExperience("");
     setVerified("all");
     setAvailability([]);
-    setStipend(600);
+    setStipend(600000);
   }
   return (
     <SiteShell>
@@ -219,20 +239,22 @@ export function TalentDirectory() {
                     ))}
                   </div>
                 </fieldset>
-                <FormField label={`Monthly stipend: up to $${stipend}`}>
+                <FormField
+                  label={`Monthly stipend: up to ₦${stipend.toLocaleString()}`}
+                >
                   <input
                     aria-label="Maximum monthly stipend"
                     type="range"
-                    min={100}
-                    max={600}
-                    step={25}
+                    min={50000}
+                    max={600000}
+                    step={25000}
                     value={stipend}
                     onChange={(event) => setStipend(Number(event.target.value))}
                     className="w-full accent-black"
                   />
                   <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>$100</span>
-                    <span>${stipend}</span>
+                    <span>₦50,000</span>
+                    <span>₦{stipend.toLocaleString()}</span>
                   </div>
                 </FormField>
               </div>
@@ -246,10 +268,16 @@ export function TalentDirectory() {
                   ☷ Filters
                 </button>
                 <p className="text-sm font-medium">
-                  {filtered.length}{" "}
+                  {loading ? "Loading" : filtered.length}{" "}
                   {filtered.length === 1 ? "intern" : "interns"}
                 </p>
               </div>
+              {loadError ? (
+                <p role="status" className="mt-4 text-sm text-muted-foreground">
+                  Live talent could not be refreshed. Showing saved preview
+                  data.
+                </p>
+              ) : null}
               <div className="mt-6 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
                 {filtered.map((person) => (
                   <a
@@ -268,7 +296,7 @@ export function TalentDirectory() {
                       </p>
                     </div>
                     <p className="text-sm font-medium">
-                      {person.skills[0].name}
+                      {person.skills[0]?.name || person.category}
                     </p>
                     <div className="mt-auto flex flex-wrap items-center gap-2">
                       <Verified value={person.idVerified} />
@@ -488,7 +516,7 @@ export function TalentProfile({ person }: { person: Talent }) {
                 </h2>
                 <p className="mt-2 text-sm opacity-90">
                   {isCompany
-                    ? `Expected monthly stipend: $${person.stipend.min}–$${person.stipend.max}.`
+                    ? `Expected monthly stipend: ₦${person.stipend.min.toLocaleString()}–₦${person.stipend.max.toLocaleString()}.`
                     : "Create a company account to see the full profile and start a placement."}
                 </p>
                 {isCompany ? (
@@ -523,21 +551,37 @@ export function TalentProfile({ person }: { person: Talent }) {
         <Modal title="Request placement" onClose={() => setModal(false)}>
           <form
             className="space-y-5"
-            onSubmit={(event) => {
+            onSubmit={async (event) => {
               event.preventDefault();
-              setModal(false);
-              setNotice(`Placement request sent for ${person.name}.`);
+              const form = new FormData(event.currentTarget);
+              try {
+                await backendRequest("/placements", {
+                  method: "POST",
+                  body: {
+                    internId: person.id,
+                    role: form.get("role"),
+                    startDate: form.get("startDate"),
+                    monthlyStipend: Number(form.get("monthlyStipend")),
+                  },
+                });
+                setModal(false);
+                setNotice(`Placement request sent for ${person.name}.`);
+              } catch (error) {
+                setNotice(errorMessage(error));
+                setModal(false);
+              }
             }}
           >
             <FormField label="Role">
-              <FormInput required placeholder="Frontend intern" />
+              <FormInput name="role" required placeholder="Frontend intern" />
             </FormField>
             <FormField label="Start date">
-              <FormInput required type="date" />
+              <FormInput name="startDate" required type="date" />
             </FormField>
             <FormField label="Monthly stipend (USD)">
               <FormInput
                 type="number"
+                name="monthlyStipend"
                 required
                 min={person.stipend.min}
                 defaultValue={person.stipend.min}
