@@ -20,6 +20,7 @@ import {
 } from "@/config/mvp";
 import { savePreview } from "@/lib/preview-store";
 import {
+  backendRequest,
   errorMessage,
   requestConfirmation,
   startCheckout,
@@ -104,6 +105,7 @@ export function ProspectSignupScreen() {
   const [emailSent, setEmailSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  const [registered, setRegistered] = useState(false);
   useEffect(
     () => () => {
       if (headshot) URL.revokeObjectURL(headshot.url);
@@ -198,6 +200,65 @@ export function ProspectSignupScreen() {
       workSamples: samples.filter(Boolean),
     });
     setVisible(isVisible);
+  }
+  async function continueSignup() {
+    if (!validate()) return;
+    setBusy(true);
+    setNotice("");
+    try {
+      if (step === 0 && !registered) {
+        await backendRequest("/auth/register/intern", {
+          method: "POST",
+          body: {
+            fullName: data.fullName,
+            email: data.email,
+            password: data.password,
+            location: {
+              country: "Nigeria",
+              state: data.state,
+              city: data.city,
+            },
+            acceptedTerms: true,
+          },
+        });
+        setRegistered(true);
+      }
+      if (step === 5) {
+        await backendRequest("/intern/profile", {
+          method: "PUT",
+          body: {
+            fullName: data.fullName,
+            headline: data.headline,
+            bio: data.bio,
+            phone: data.phone,
+            location: {
+              country: "Nigeria",
+              state: data.state,
+              city: data.city,
+            },
+            category: data.category,
+            skills,
+            experience: data.experience,
+            availability: data.availability,
+            expectedMonthlyStipend: {
+              min: Number(data.stipendMin),
+              max: Number(data.stipendMax),
+            },
+            selfTaught,
+            education: selfTaught ? [] : education,
+            certifications: certs.filter((entry) => entry.name.trim()),
+            workSamples: samples.filter(Boolean),
+          },
+        });
+        await backendRequest("/intern/profile/submit", { method: "POST" });
+        saveProfile(false);
+      }
+      move(step + 1);
+    } catch (error) {
+      setNotice(errorMessage(error));
+    } finally {
+      setBusy(false);
+    }
   }
   async function finishLater() {
     saveProfile(false);
@@ -942,12 +1003,11 @@ export function ProspectSignupScreen() {
                 )}
                 {step < 6 ? (
                   <button
+                    disabled={busy}
                     className={primaryButtonClass}
-                    onClick={() => {
-                      if (validate()) move(step + 1);
-                    }}
+                    onClick={() => void continueSignup()}
                   >
-                    Continue →
+                    {busy ? "Saving…" : "Continue →"}
                   </button>
                 ) : null}
               </div>
